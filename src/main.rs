@@ -3,13 +3,12 @@ mod time;
 use grid::Grid;
 
 use iced::{
-    button, executor, Application, Button, Clipboard, Column, Command, Container, Element, Length,
-    Row, Settings, Subscription, Text,
+    button, executor, slider, Align, Application, Button, Clipboard, Column, Command, Container,
+    Element, Length, Row, Settings, Slider, Subscription, Text,
 };
 use std::time::Duration;
 use time::Timer;
 
-const FPS: u64 = 30;
 const MILLISEC: u64 = 1000;
 
 fn main() {
@@ -20,8 +19,12 @@ fn main() {
 struct GameOfLife {
     grid: Grid,
     is_playing: bool,
+    speed: u64,
+    next_speed: Option<u64>,
     toggle_button: button::State,
     next_button: button::State,
+    clear_button: button::State,
+    speed_slider: slider::State,
 }
 
 #[derive(Debug, Clone)]
@@ -30,6 +33,8 @@ enum Message {
     Tick,
     Toggle,
     Next,
+    Clear,
+    SpeedChanged(f32),
 }
 
 impl Application for GameOfLife {
@@ -40,6 +45,7 @@ impl Application for GameOfLife {
     fn new(_flags: ()) -> (Self, Command<Self::Message>) {
         (
             Self {
+                speed: 5,
                 ..Default::default()
             },
             Command::none(),
@@ -61,16 +67,30 @@ impl Application for GameOfLife {
             }
             Message::Tick | Message::Next => {
                 self.grid.tick();
+
+                if let Some(speed) = self.next_speed.take() {
+                    self.speed = speed;
+                }
             }
             Message::Toggle => {
                 self.is_playing = !self.is_playing;
+            }
+            Message::Clear => {
+                self.grid = Grid::default();
+            }
+            Message::SpeedChanged(speed) => {
+                if self.is_playing {
+                    self.next_speed = Some(speed.round() as u64);
+                } else {
+                    self.speed = speed.round() as u64;
+                }
             }
         }
         Command::none()
     }
 
     fn view(&mut self) -> Element<Self::Message> {
-        let control = Row::new()
+        let playback_controls = Row::new()
             .spacing(10)
             .push(
                 Button::new(
@@ -84,13 +104,39 @@ impl Application for GameOfLife {
                 Button::new(&mut self.next_button, Text::new("Next"))
                     .on_press(Message::Next)
                     .style(style::Button),
+            )
+            .push(
+                Button::new(&mut self.clear_button, Text::new("Clear"))
+                    .on_press(Message::Clear)
+                    .style(style::Button),
             );
+
+        let selected_speed = self.next_speed.unwrap_or(self.speed);
+        let speed_controls = Row::new()
+            .spacing(10)
+            .push(
+                Slider::new(
+                    &mut self.speed_slider,
+                    1.0..=20.0,
+                    selected_speed as f32,
+                    Message::SpeedChanged,
+                )
+                .width(Length::Units(200))
+                .style(style::Slider),
+            )
+            .push(Text::new(format!("x{}", selected_speed)).size(16))
+            .align_items(Align::Center);
+
+        let controls = Row::new()
+            .spacing(20)
+            .push(playback_controls)
+            .push(speed_controls);
 
         let content = Column::new()
             .spacing(10)
             .padding(10)
             .push(self.grid.view().map(Message::Grid))
-            .push(control);
+            .push(controls);
         Container::new(content)
             .width(Length::Fill)
             .height(Length::Fill)
@@ -100,7 +146,7 @@ impl Application for GameOfLife {
 
     fn subscription(&self) -> Subscription<Self::Message> {
         if self.is_playing {
-            let timer = Timer::new(Duration::from_millis(MILLISEC / FPS));
+            let timer = Timer::new(Duration::from_millis(MILLISEC / self.speed));
             Subscription::from_recipe(timer).map(|_| Message::Tick)
         } else {
             Subscription::none()
@@ -109,7 +155,7 @@ impl Application for GameOfLife {
 }
 
 mod grid {
-    use iced::canvas::{self, event, Canvas, Cursor, Event, Geometry, Path};
+    use iced::canvas::{self, event, Canvas, Cursor, Event, Frame, Geometry, Path};
     use iced::mouse::Interaction;
     use iced::{mouse, Color, Element, Length, Point, Rectangle, Size, Vector};
 
@@ -265,7 +311,7 @@ mod grid {
             }
         }
 
-        fn draw(&self, bounds: Rectangle, _cursor: Cursor) -> Vec<Geometry> {
+        fn draw(&self, bounds: Rectangle, cursor: Cursor) -> Vec<Geometry> {
             let region = self.region(bounds.size());
             let cell_size = Size::new(1.0, 1.0);
 
@@ -297,7 +343,30 @@ mod grid {
                 });
             });
 
-            vec![life]
+            let hovered_cell = {
+                let mut frame = Frame::new(bounds.size());
+
+                frame.translate(Vector::new(region.x, region.y));
+                frame.scale(region.width / SIZE as f32);
+
+                if let Some(cursor_position) = cursor.position_in(&bounds) {
+                    if let Some((i, j)) = self.cell_at(region, cursor_position) {
+                        let interaction =
+                            Path::rectangle(Point::new(j as f32, i as f32), cell_size);
+                        frame.fill(
+                            &interaction,
+                            Color {
+                                a: 0.5,
+                                ..Color::BLACK
+                            },
+                        )
+                    }
+                }
+
+                frame.into_geometry()
+            };
+
+            vec![life, hovered_cell]
         }
 
         fn mouse_interaction(&self, bounds: Rectangle, cursor: Cursor) -> Interaction {

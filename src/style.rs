@@ -1,4 +1,4 @@
-use iced::{button, container, Background, Color};
+use iced::{button, container, slider, Background, Color};
 
 const ACTIVE: Color = Color::from_rgb(
     0x72 as f32 / 255.0,
@@ -49,6 +49,46 @@ impl button::StyleSheet for Button {
             border_width: 1.0,
             border_color: Color::WHITE,
             ..self.hovered()
+        }
+    }
+}
+
+pub struct Slider;
+
+impl slider::StyleSheet for Slider {
+    fn active(&self) -> slider::Style {
+        slider::Style {
+            rail_colors: (ACTIVE, Color { a: 0.1, ..ACTIVE }),
+            handle: slider::Handle {
+                shape: slider::HandleShape::Circle { radius: 9.0 },
+                color: ACTIVE,
+                border_width: 0.0,
+                border_color: Color::TRANSPARENT,
+            },
+        }
+    }
+
+    fn hovered(&self) -> slider::Style {
+        let active = self.active();
+
+        slider::Style {
+            handle: slider::Handle {
+                color: HOVERED,
+                ..active.handle
+            },
+            ..active
+        }
+    }
+
+    fn dragging(&self) -> slider::Style {
+        let active = self.active();
+
+        slider::Style {
+            handle: slider::Handle {
+                color: Color::from_rgb(0.85, 0.85, 0.85),
+                ..active.handle
+            },
+            ..active
         }
     }
 }
