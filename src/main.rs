@@ -40,7 +40,6 @@ impl Application for GameOfLife {
     fn new(_flags: ()) -> (Self, Command<Self::Message>) {
         (
             Self {
-                grid: Grid::new(),
                 ..Default::default()
             },
             Command::none(),
@@ -57,7 +56,9 @@ impl Application for GameOfLife {
         _clipboard: &mut Clipboard,
     ) -> Command<Self::Message> {
         match message {
-            Message::Grid(message) => (),
+            Message::Grid(message) => {
+                self.grid.update(message);
+            }
             Message::Tick | Message::Next => {
                 self.grid.tick();
             }
@@ -108,9 +109,9 @@ impl Application for GameOfLife {
 }
 
 mod grid {
-    use iced::canvas::{self, Canvas, Cursor, Geometry, Path};
-    use iced::{Color, Element, Length, Point, Rectangle, Size, Vector};
-    use rand::Rng;
+    use iced::canvas::{self, event, Canvas, Cursor, Event, Geometry, Path};
+    use iced::mouse::Interaction;
+    use iced::{mouse, Color, Element, Length, Point, Rectangle, Size, Vector};
 
     const SIZE: usize = 32;
 
@@ -127,31 +128,18 @@ mod grid {
     }
 
     #[derive(Debug, Clone)]
-    pub enum Message {}
+    pub enum Message {
+        Populate { i: usize, j: usize },
+    }
 
     #[derive(Default)]
     pub struct Grid {
         cells: [[Cell; SIZE]; SIZE],
+        mouse_pressed: bool,
         cache: canvas::Cache,
     }
 
     impl Grid {
-        pub fn new() -> Self {
-            let mut rng = rand::thread_rng();
-            let mut cells = [[Cell::default(); SIZE]; SIZE];
-            for x in 0..SIZE {
-                for y in 0..SIZE {
-                    if rng.gen_range(0..3) == 0 {
-                        cells[x][y] = Cell::Populated;
-                    }
-                }
-            }
-            Self {
-                cells,
-                ..Default::default()
-            }
-        }
-
         pub fn tick(&mut self) {
             let mut populated_neighbors: [[usize; SIZE]; SIZE] = [[0; SIZE]; SIZE];
 
@@ -174,6 +162,15 @@ mod grid {
             }
 
             self.cache.clear();
+        }
+
+        pub fn update(&mut self, message: Message) {
+            match message {
+                Message::Populate { i, j } => {
+                    self.cells[i][j] = Cell::Populated;
+                    self.cache.clear()
+                }
+            }
         }
 
         pub fn view(&mut self) -> Element<Message> {
@@ -209,9 +206,65 @@ mod grid {
                 height: side,
             }
         }
+
+        fn cell_at(&self, region: Rectangle, position: Point) -> Option<(usize, usize)> {
+            if region.contains(position) {
+                let cell_size = region.width / SIZE as f32;
+
+                let i = ((position.y - region.y) / cell_size).ceil() as usize;
+                let j = ((position.x - region.x) / cell_size).ceil() as usize;
+
+                Some((i.saturating_sub(1), j.saturating_sub(1)))
+            } else {
+                None
+            }
+        }
     }
 
     impl canvas::Program<Message> for Grid {
+        fn update(
+            &mut self,
+            event: Event,
+            bounds: Rectangle,
+            cursor: Cursor,
+        ) -> (event::Status, Option<Message>) {
+            if let Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left)) = event {
+                self.mouse_pressed = true;
+            } else if Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) == event {
+                self.mouse_pressed = false;
+            }
+
+            let region = self.region(bounds.size());
+            let cursor_position = if let Some(position) = cursor.position_in(&bounds) {
+                position
+            } else {
+                return (event::Status::Ignored, None);
+            };
+            let (i, j) = if let Some(at) = self.cell_at(region, cursor_position) {
+                at
+            } else {
+                return (event::Status::Ignored, None);
+            };
+
+            let populate = if self.cells[i][j] != Cell::Populated {
+                Some(Message::Populate { i, j })
+            } else {
+                None
+            };
+
+            match event {
+                Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))
+                    if self.mouse_pressed =>
+                {
+                    (event::Status::Captured, populate)
+                }
+                Event::Mouse(mouse::Event::CursorMoved { .. }) if self.mouse_pressed => {
+                    (event::Status::Captured, populate)
+                }
+                _ => (event::Status::Ignored, None),
+            }
+        }
+
         fn draw(&self, bounds: Rectangle, _cursor: Cursor) -> Vec<Geometry> {
             let region = self.region(bounds.size());
             let cell_size = Size::new(1.0, 1.0);
@@ -245,6 +298,15 @@ mod grid {
             });
 
             vec![life]
+        }
+
+        fn mouse_interaction(&self, bounds: Rectangle, cursor: Cursor) -> Interaction {
+            let region = self.region(bounds.size());
+
+            match cursor.position_in(&bounds) {
+                Some(position) if region.contains(position) => Interaction::Crosshair,
+                _ => Interaction::default(),
+            }
         }
     }
 }

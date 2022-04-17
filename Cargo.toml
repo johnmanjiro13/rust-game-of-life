@@ -10,4 +10,3 @@ async-std = { version = "1.11.0", features = ["unstable"] }
 iced = { version = "0.3.0", features = ["async-std", "canvas"] }
 iced_native = "0.4.0"
 itertools = "0.10.3"
-rand = "0.8.5"

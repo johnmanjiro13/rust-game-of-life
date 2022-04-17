@@ -2260,7 +2260,6 @@ dependencies = [
  "iced",
  "iced_native",
  "itertools",
- "rand",
 ]
 
 [[package]]
